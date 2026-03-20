@@ -44,7 +44,14 @@ pip install streamlit
 streamlit run app.py
 ```
 
-Open http://localhost:8501 — pick movies from a grid, get recommendations with explanations.
+Open http://localhost:8501 to use the web interface:
+
+- **Browse 50 popular movies** in a sortable, filterable grid
+- **Sort** by newest, most popular, or highest rated
+- **Filter** by decade (2010s, 2000s, 1990s, etc.) and genre (Action, Comedy, Drama, etc.)
+- **Search** to quickly find specific movies
+- **Select 3+ movies** you like, then get personalized recommendations
+- Each recommendation includes a **clear explanation** of why it was picked
 
 ## CLI Usage
 

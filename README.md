@@ -4,38 +4,73 @@ A movie recommendation system that tells you *why* it recommends each movie.
 
 ## What it does
 
-This hybrid recommender combines content-based filtering (movie genres/tags) with collaborative filtering (user rating patterns) to generate personalized movie recommendations. The key feature is explainability: every recommendation comes with a human-readable explanation of why that movie was selected for you.
+Pick movies you like, get recommendations with clear explanations. This hybrid recommender combines content-based filtering (genres, tags) with collaborative filtering (what similar users enjoyed) to find movies you'll love — and tells you exactly why each one was picked.
 
 ## How it works
 
-The system uses three approaches:
-
-1. **Content-based filtering**: TF-IDF vectorization of movie genres and user-generated tags, with cosine similarity to find movies with similar content profiles.
-
-2. **Collaborative filtering**: SVD matrix factorization on the user-item rating matrix to identify users with similar taste and predict ratings for unseen movies.
-
-3. **Explainability layer**: For each recommendation, the system generates an explanation combining relevant signals — shared genres with movies you liked, common tags, and how similar users rated the movie.
+1. **You pick movies you like** from a grid of popular films
+2. **Content matching** finds movies with similar genres and themes
+3. **Collaborative filtering** finds what users with similar taste enjoyed
+4. **Explanations** tell you exactly why each movie was recommended
 
 ## Example output
 
 ```
+Movies you like:
+  ★ Toy Story (1995)
+  ★ The Matrix (1999)
+  ★ Pulp Fiction (1994)
+
 Top 5 recommendations for you:
 
-1. Big Lebowski, The (1998)
-   Genres: Comedy|Crime
-   Score: 0.48 | Predicted rating: 3.7/5
-   Why: Users with similar taste rated this 3.9/5
+1. Fight Club (1999)
+   Genres: Action, Crime, Drama, Thriller
+   Match: 56% | Rating: 4.6/5
+   Why: Because you liked Pulp Fiction (1994) — shares genres: Crime, Thriller, Drama.
+        Fans of your picks rated this 4.6/5
 
-2. Mission: Impossible II (2000)
-   Genres: Action|Adventure|Thriller
-   Score: 0.4 | Predicted rating: 3.5/5
-   Why: Similar to GoldenEye (1995) — shares genres: Action, Adventure, Thriller
-        Users with similar taste rated this 2.7/5
+2. Toy Story 2 (1999)
+   Genres: Adventure, Animation, Children, Comedy, Fantasy
+   Match: 53% | Rating: 4.5/5
+   Why: Because you liked Toy Story (1995) — shares genres: Adventure, Animation, Comedy.
+        Fans of your picks rated this 4.5/5
+```
+
+## Web UI
+
+Run the interactive web app:
+```bash
+pip install streamlit
+streamlit run app.py
+```
+
+Open http://localhost:8501 — pick movies from a grid, get recommendations with explanations.
+
+## CLI Usage
+
+Get recommendations based on movies you like:
+```bash
+python main.py --like "Toy Story (1995)" "The Matrix (1999)" "Pulp Fiction (1994)"
+```
+
+Find similar movies:
+```bash
+python main.py --similar "The Dark Knight (2008)"
+```
+
+See popular movies (to help you pick):
+```bash
+python main.py --popular
+```
+
+Run evaluation:
+```bash
+python main.py --evaluate
 ```
 
 ## Dataset
 
-Uses the MovieLens Small dataset (~100k ratings, 9k movies, 600 users). The dataset downloads automatically on first run.
+Uses MovieLens Small (~100k ratings, 9k movies). Downloads automatically on first run.
 
 ## Setup
 
@@ -45,38 +80,8 @@ cd explainable-recommender
 pip install -r requirements.txt
 ```
 
-## Usage
-
-Get personalized recommendations for a user:
-```bash
-python main.py --user 42
-```
-
-Find similar movies:
-```bash
-python main.py --movie "Toy Story"
-```
-
-Run evaluation:
-```bash
-python main.py --evaluate
-```
-
-Customize number of results:
-```bash
-python main.py --user 42 -n 20
-```
-
-## Evaluation
-
-On a 80/20 train-test split:
-- Collaborative filtering RMSE: ~3.1
-- Hybrid Precision@10: ~0.14
-- Hybrid Recall@10: ~0.08
-
 ## Tech stack
 
 - Python 3.10+
-- pandas, numpy
-- scikit-learn (TF-IDF, cosine similarity)
-- scipy (SVD)
+- pandas, numpy, scikit-learn, scipy
+- Streamlit (web UI)

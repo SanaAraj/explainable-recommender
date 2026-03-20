@@ -19,7 +19,7 @@ class HybridRecommender:
         self.movie_id_to_title = dict(zip(movies['movieId'], movies['title']))
         self.title_to_movie_id = dict(zip(movies['title'], movies['movieId']))
 
-    def get_popular_movies(self, n: int = 30) -> list[dict]:
+    def get_popular_movies(self, n: int = 50) -> list[dict]:
         rating_counts = self.ratings.groupby('movieId').agg(
             count=('rating', 'count'),
             avg_rating=('rating', 'mean')
@@ -31,14 +31,30 @@ class HybridRecommender:
         for _, row in popular.iterrows():
             movie_id = row['movieId']
             movie_data = self.movies[self.movies['movieId'] == movie_id].iloc[0]
+            full_title = movie_data['title']
+            title, year = self._parse_title_year(full_title)
+            genres_list = movie_data['genres'].split('|') if movie_data['genres'] else []
+
             results.append({
                 'movieId': int(movie_id),
-                'title': movie_data['title'],
-                'genres': movie_data['genres'],
-                'rating_count': int(row['count']),
+                'full_title': full_title,
+                'title': title,
+                'year': year,
+                'genres': genres_list,
+                'genres_str': movie_data['genres'],
+                'num_ratings': int(row['count']),
                 'avg_rating': round(row['avg_rating'], 1)
             })
         return results
+
+    def _parse_title_year(self, full_title: str) -> tuple[str, int]:
+        import re
+        match = re.search(r'\((\d{4})\)\s*$', full_title)
+        if match:
+            year = int(match.group(1))
+            title = full_title[:match.start()].strip()
+            return title, year
+        return full_title, 0
 
     def recommend_from_likes(self, liked_titles: list[str], n: int = 10) -> list[dict]:
         liked_ids = set()

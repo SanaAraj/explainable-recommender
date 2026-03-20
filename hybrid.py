@@ -7,7 +7,7 @@ from collaborative import CollaborativeRecommender
 
 class HybridRecommender:
     def __init__(self, movies: pd.DataFrame, ratings: pd.DataFrame,
-                 content_weight: float = 0.3, collab_weight: float = 0.7):
+                 content_weight: float = 0.4, collab_weight: float = 0.6):
         self.movies = movies
         self.ratings = ratings
         self.content_weight = content_weight
@@ -18,6 +18,161 @@ class HybridRecommender:
 
         self.movie_id_to_title = dict(zip(movies['movieId'], movies['title']))
         self.title_to_movie_id = dict(zip(movies['title'], movies['movieId']))
+
+    def get_popular_movies(self, n: int = 30) -> list[dict]:
+        rating_counts = self.ratings.groupby('movieId').agg(
+            count=('rating', 'count'),
+            avg_rating=('rating', 'mean')
+        ).reset_index()
+
+        popular = rating_counts[rating_counts['count'] >= 50].nlargest(n, 'count')
+
+        results = []
+        for _, row in popular.iterrows():
+            movie_id = row['movieId']
+            movie_data = self.movies[self.movies['movieId'] == movie_id].iloc[0]
+            results.append({
+                'movieId': int(movie_id),
+                'title': movie_data['title'],
+                'genres': movie_data['genres'],
+                'rating_count': int(row['count']),
+                'avg_rating': round(row['avg_rating'], 1)
+            })
+        return results
+
+    def recommend_from_likes(self, liked_titles: list[str], n: int = 10) -> list[dict]:
+        liked_ids = set()
+        valid_titles = []
+        for title in liked_titles:
+            if title in self.title_to_movie_id:
+                liked_ids.add(self.title_to_movie_id[title])
+                valid_titles.append(title)
+
+        if not valid_titles:
+            return []
+
+        content_scores = {}
+        content_explanations = {}
+        for title in valid_titles:
+            similar = self.content_rec.get_similar_movies(title, n=30)
+            for rec in similar:
+                mid = rec['movieId']
+                if mid in liked_ids:
+                    continue
+                if mid not in content_scores or rec['score'] > content_scores[mid]:
+                    content_scores[mid] = rec['score']
+                    content_explanations[mid] = {
+                        'source_movie': title,
+                        'shared_genres': rec['shared_genres'],
+                        'shared_tags': rec['shared_tags']
+                    }
+
+        similar_users = self._find_similar_users(liked_ids)
+        collab_scores = self._aggregate_user_preferences(similar_users, liked_ids)
+
+        candidates = {}
+        all_movie_ids = set(content_scores.keys()) | set(collab_scores.keys())
+
+        for mid in all_movie_ids:
+            if mid in liked_ids:
+                continue
+
+            c_score = content_scores.get(mid, 0)
+            collab_data = collab_scores.get(mid, {'score': 0, 'avg_rating': 3.0, 'fan_count': 0})
+
+            hybrid_score = self.content_weight * c_score + self.collab_weight * collab_data['score']
+            candidates[mid] = {
+                'hybrid_score': hybrid_score,
+                'content_score': c_score,
+                'collab_score': collab_data['score'],
+                'avg_rating': collab_data['avg_rating'],
+                'fan_count': collab_data['fan_count'],
+                'content_explanation': content_explanations.get(mid)
+            }
+
+        sorted_candidates = sorted(candidates.items(), key=lambda x: x[1]['hybrid_score'], reverse=True)[:n]
+
+        results = []
+        for movie_id, scores in sorted_candidates:
+            title = self.movie_id_to_title.get(movie_id, f'Movie {movie_id}')
+            movie_row = self.movies[self.movies['movieId'] == movie_id]
+            genres = movie_row['genres'].iloc[0] if not movie_row.empty else ''
+
+            explanation = self._build_liked_explanation(
+                scores['content_explanation'],
+                scores['avg_rating'],
+                scores['fan_count'],
+                valid_titles
+            )
+
+            results.append({
+                'movieId': movie_id,
+                'title': title,
+                'genres': genres,
+                'score': round(scores['hybrid_score'], 2),
+                'avg_rating': round(scores['avg_rating'], 1),
+                'explanation': explanation
+            })
+
+        return results
+
+    def _find_similar_users(self, liked_movie_ids: set, min_overlap: int = 2) -> list[int]:
+        user_liked = self.ratings[
+            (self.ratings['movieId'].isin(liked_movie_ids)) &
+            (self.ratings['rating'] >= 4.0)
+        ]
+        user_counts = user_liked.groupby('userId').size()
+        similar_users = user_counts[user_counts >= min_overlap].index.tolist()
+        return similar_users[:100]
+
+    def _aggregate_user_preferences(self, user_ids: list[int], exclude_ids: set) -> dict:
+        if not user_ids:
+            return {}
+
+        user_ratings = self.ratings[
+            (self.ratings['userId'].isin(user_ids)) &
+            (self.ratings['rating'] >= 4.0) &
+            (~self.ratings['movieId'].isin(exclude_ids))
+        ]
+
+        agg = user_ratings.groupby('movieId').agg(
+            avg_rating=('rating', 'mean'),
+            fan_count=('userId', 'nunique')
+        ).reset_index()
+
+        if agg.empty:
+            return {}
+
+        max_fans = agg['fan_count'].max()
+        result = {}
+        for _, row in agg.iterrows():
+            mid = row['movieId']
+            normalized_score = row['fan_count'] / max_fans if max_fans > 0 else 0
+            result[mid] = {
+                'score': normalized_score,
+                'avg_rating': row['avg_rating'],
+                'fan_count': int(row['fan_count'])
+            }
+        return result
+
+    def _build_liked_explanation(self, content_exp: dict, avg_rating: float,
+                                  fan_count: int, liked_titles: list) -> str:
+        parts = []
+
+        if content_exp and content_exp.get('shared_genres'):
+            source = content_exp['source_movie']
+            genres = ', '.join(content_exp['shared_genres'])
+            parts.append(f"Because you liked {source} — shares genres: {genres}")
+        elif content_exp and content_exp.get('shared_tags'):
+            source = content_exp['source_movie']
+            parts.append(f"Similar themes to {source}")
+
+        if fan_count > 1:
+            parts.append(f"Fans of your picks rated this {avg_rating:.1f}/5")
+        elif avg_rating > 0:
+            parts.append(f"Average rating: {avg_rating:.1f}/5")
+
+        return '. '.join(parts) if parts else "Recommended based on your selections"
 
     def get_recommendations(self, user_id: int, n: int = 10) -> list[dict]:
         user_top_movies = self._get_user_favorites(user_id)
@@ -115,20 +270,24 @@ if __name__ == '__main__':
     movies, ratings = load_all_data()
     recommender = HybridRecommender(movies, ratings)
 
-    test_user = 42
     print('=' * 70)
-    print(f'HYBRID RECOMMENDATIONS FOR USER {test_user}')
+    print('POPULAR MOVIES')
     print('=' * 70)
-
-    user_favs = recommender._get_user_favorites(test_user)
-    if user_favs:
-        print(f"\nUser's top rated movies:")
-        for title, rating in user_favs[:3]:
-            print(f"  - {title} ({rating}/5)")
+    popular = recommender.get_popular_movies(n=5)
+    for m in popular:
+        print(f"  {m['title']} - {m['rating_count']} ratings, avg {m['avg_rating']}")
 
     print(f"\n{'='*70}")
-    recs = recommender.get_recommendations(test_user, n=5)
+    print('RECOMMENDATIONS BASED ON LIKED MOVIES')
+    print('=' * 70)
+
+    liked = ['Toy Story (1995)', 'Jurassic Park (1993)', 'Forrest Gump (1994)']
+    print(f"\nLiked movies: {liked}")
+    print()
+
+    recs = recommender.recommend_from_likes(liked, n=5)
     for i, rec in enumerate(recs, 1):
-        print(f"\n{i}. {rec['title']}")
-        print(f"   Score: {rec['score']} | Predicted: {rec['predicted_rating']}/5")
+        print(f"{i}. {rec['title']}")
+        print(f"   Score: {rec['score']} | Avg rating: {rec['avg_rating']}/5")
         print(f"   Why: {rec['explanation']}")
+        print()

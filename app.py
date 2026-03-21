@@ -1,30 +1,11 @@
 import streamlit as st
-from data_loader import load_all_data
-from content_based import ContentBasedRecommender
-from hybrid import HybridRecommender
+from recommender import MovieRecommender
 
 st.set_page_config(page_title="Movie Recommender", page_icon="🎬", layout="wide")
 
 st.markdown("""
 <style>
-    .stButton > button {
-        border-radius: 8px;
-    }
-    .movie-card {
-        background: #1e1e2e;
-        border: 2px solid #333;
-        border-radius: 12px;
-        padding: 12px;
-        min-height: 140px;
-        transition: all 0.2s;
-    }
-    .movie-card:hover {
-        border-color: #6366f1;
-    }
-    .movie-card.selected {
-        border-color: #22c55e;
-        background: #1a2e1a;
-    }
+    .stButton > button { border-radius: 8px; }
     .genre-pill {
         background: #374151;
         color: #d1d5db;
@@ -34,30 +15,7 @@ st.markdown("""
         margin-right: 4px;
         display: inline-block;
     }
-    .year-badge {
-        color: #9ca3af;
-        font-size: 13px;
-    }
-    .rating-badge {
-        color: #fbbf24;
-        font-size: 13px;
-    }
-    .filter-pill {
-        display: inline-block;
-        padding: 6px 14px;
-        border-radius: 20px;
-        font-size: 13px;
-        cursor: pointer;
-        margin: 3px;
-        border: 1px solid #4b5563;
-        background: transparent;
-        color: #d1d5db;
-    }
-    .filter-pill.active {
-        background: #6366f1;
-        border-color: #6366f1;
-        color: white;
-    }
+    .year-badge { color: #9ca3af; font-size: 13px; }
     .explanation-box {
         background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
         border-left: 4px solid #8b5cf6;
@@ -73,21 +31,9 @@ st.markdown("""
         letter-spacing: 0.5px;
         margin-bottom: 6px;
     }
-    .explanation-text {
-        color: #e0e7ff;
-        font-size: 15px;
-        line-height: 1.5;
-    }
-    .match-bar {
-        height: 6px;
-        border-radius: 3px;
-        background: #374151;
-        overflow: hidden;
-    }
-    .match-fill {
-        height: 100%;
-        border-radius: 3px;
-    }
+    .explanation-text { color: #e0e7ff; font-size: 15px; line-height: 1.5; }
+    .match-bar { height: 6px; border-radius: 3px; background: #374151; overflow: hidden; }
+    .match-fill { height: 100%; border-radius: 3px; }
     .picks-summary {
         background: #1f2937;
         padding: 12px 16px;
@@ -99,15 +45,12 @@ st.markdown("""
 
 
 @st.cache_resource
-def load_recommenders():
-    movies, ratings = load_all_data()
-    content_rec = ContentBasedRecommender(movies)
-    hybrid_rec = HybridRecommender(movies, ratings)
-    popular = hybrid_rec.get_popular_movies(n=50)
-    return movies, content_rec, hybrid_rec, popular
+def load_recommender():
+    return MovieRecommender()
 
 
-movies_df, content_rec, hybrid_rec, all_popular = load_recommenders()
+rec = load_recommender()
+all_movies = rec.get_catalog()
 
 if 'selected_movies' not in st.session_state:
     st.session_state.selected_movies = set()
@@ -124,28 +67,24 @@ with tab1:
         st.subheader("Select at least 3 movies you enjoy")
 
         # Sort options
-        sort_col1, sort_col2, sort_col3, sort_col4 = st.columns([1, 1, 1, 3])
+        sort_col1, sort_col2, sort_col3, _ = st.columns([1, 1, 1, 3])
         with sort_col1:
-            sort_newest = st.button("Newest", type="primary" if st.session_state.get('sort_by', 'newest') == 'newest' else "secondary", use_container_width=True)
+            if st.button("Newest", type="primary" if st.session_state.get('sort_by', 'newest') == 'newest' else "secondary", use_container_width=True):
+                st.session_state.sort_by = 'newest'
+                st.rerun()
         with sort_col2:
-            sort_popular = st.button("Most Popular", type="primary" if st.session_state.get('sort_by') == 'popular' else "secondary", use_container_width=True)
+            if st.button("Most Popular", type="primary" if st.session_state.get('sort_by') == 'popular' else "secondary", use_container_width=True):
+                st.session_state.sort_by = 'popular'
+                st.rerun()
         with sort_col3:
-            sort_rated = st.button("Highest Rated", type="primary" if st.session_state.get('sort_by') == 'rated' else "secondary", use_container_width=True)
-
-        if sort_newest:
-            st.session_state.sort_by = 'newest'
-            st.rerun()
-        if sort_popular:
-            st.session_state.sort_by = 'popular'
-            st.rerun()
-        if sort_rated:
-            st.session_state.sort_by = 'rated'
-            st.rerun()
+            if st.button("Highest Rated", type="primary" if st.session_state.get('sort_by') == 'rated' else "secondary", use_container_width=True):
+                st.session_state.sort_by = 'rated'
+                st.rerun()
 
         # Decade filter
         st.markdown("**Decade:**")
         decade_cols = st.columns(6)
-        decades = ['All', '2010s', '2000s', '1990s', '1980s', 'Earlier']
+        decades = ['All', '2020s', '2010s', '2000s', '1990s', 'Earlier']
         current_decade = st.session_state.get('decade_filter', 'All')
 
         for i, decade in enumerate(decades):
@@ -176,45 +115,41 @@ with tab1:
         st.markdown("---")
 
         # Filter and sort movies
-        filtered_movies = all_popular.copy()
+        filtered_movies = all_movies.copy()
 
-        # Apply search filter
         if search_query:
             search_lower = search_query.lower()
             filtered_movies = [m for m in filtered_movies if search_lower in m['title'].lower()]
 
-        # Apply decade filter
         if current_decade != 'All':
-            if current_decade == '2010s':
+            if current_decade == '2020s':
+                filtered_movies = [m for m in filtered_movies if 2020 <= m['year'] <= 2029]
+            elif current_decade == '2010s':
                 filtered_movies = [m for m in filtered_movies if 2010 <= m['year'] <= 2019]
             elif current_decade == '2000s':
                 filtered_movies = [m for m in filtered_movies if 2000 <= m['year'] <= 2009]
             elif current_decade == '1990s':
                 filtered_movies = [m for m in filtered_movies if 1990 <= m['year'] <= 1999]
-            elif current_decade == '1980s':
-                filtered_movies = [m for m in filtered_movies if 1980 <= m['year'] <= 1989]
             elif current_decade == 'Earlier':
-                filtered_movies = [m for m in filtered_movies if m['year'] < 1980]
+                filtered_movies = [m for m in filtered_movies if m['year'] < 1990]
 
-        # Apply genre filter
         if current_genre != 'All':
             filtered_movies = [m for m in filtered_movies if current_genre in m['genres']]
 
-        # Apply sorting
         sort_by = st.session_state.get('sort_by', 'newest')
         if sort_by == 'newest':
             filtered_movies = sorted(filtered_movies, key=lambda x: x['year'], reverse=True)
         elif sort_by == 'popular':
-            filtered_movies = sorted(filtered_movies, key=lambda x: x['num_ratings'], reverse=True)
+            filtered_movies = sorted(filtered_movies, key=lambda x: x['votes'], reverse=True)
         elif sort_by == 'rated':
-            filtered_movies = sorted(filtered_movies, key=lambda x: x['avg_rating'], reverse=True)
+            filtered_movies = sorted(filtered_movies, key=lambda x: x['rating'], reverse=True)
 
         # Show selected count
         n_selected = len(st.session_state.selected_movies)
         if n_selected > 0:
-            selected_titles = list(st.session_state.selected_movies)[:3]
+            selected_list = list(st.session_state.selected_movies)[:3]
             more = f" +{n_selected - 3} more" if n_selected > 3 else ""
-            st.markdown(f"**Selected ({n_selected}):** {', '.join(selected_titles)}{more}")
+            st.markdown(f"**Selected ({n_selected}):** {', '.join(selected_list)}{more}")
 
         # Movie grid
         if not filtered_movies:
@@ -223,38 +158,36 @@ with tab1:
             cols = st.columns(4)
             for idx, movie in enumerate(filtered_movies):
                 col = cols[idx % 4]
+                full_title = f"{movie['title']} ({movie['year']})"
                 with col:
-                    is_selected = movie['full_title'] in st.session_state.selected_movies
+                    is_selected = full_title in st.session_state.selected_movies
                     genres_display = ' • '.join(movie['genres'][:3])
 
-                    btn_label = f"{'✓ ' if is_selected else ''}{movie['title']}\n{movie['year']} • ★{movie['avg_rating']}\n{genres_display[:30]}"
+                    btn_label = f"{'✓ ' if is_selected else ''}{movie['title']}\n{movie['year']} • ★{movie['rating']}\n{genres_display[:30]}"
 
-                    if st.button(btn_label, key=f"movie_{movie['movieId']}",
+                    if st.button(btn_label, key=f"movie_{movie['id']}",
                                 use_container_width=True,
                                 type="primary" if is_selected else "secondary"):
                         if is_selected:
-                            st.session_state.selected_movies.discard(movie['full_title'])
+                            st.session_state.selected_movies.discard(full_title)
                         else:
-                            st.session_state.selected_movies.add(movie['full_title'])
+                            st.session_state.selected_movies.add(full_title)
                         st.rerun()
 
         st.markdown("---")
 
-        # Get recommendations button
         col1, col2, col3 = st.columns([2, 1, 2])
         with col2:
             if n_selected >= 3:
-                if st.button(f"Get Recommendations", type="primary", use_container_width=True):
+                if st.button("Get Recommendations", type="primary", use_container_width=True):
                     st.session_state.show_results = True
                     st.rerun()
             else:
                 st.button(f"Select {3 - n_selected} more", disabled=True, use_container_width=True)
 
     else:
-        # Results page
         liked = list(st.session_state.selected_movies)
 
-        # Your picks summary
         st.markdown(f"""
         <div class="picks-summary">
             <strong>Based on your picks:</strong> {', '.join(liked)}
@@ -264,40 +197,29 @@ with tab1:
         st.subheader("Recommended for you")
 
         with st.spinner("Finding perfect matches..."):
-            recs = hybrid_rec.recommend_from_likes(liked, n=10)
+            recs = rec.recommend_from_likes(liked, n=10)
 
-        for i, rec in enumerate(recs, 1):
+        for i, r in enumerate(recs, 1):
             with st.container():
                 col1, col2 = st.columns([4, 1])
 
                 with col1:
-                    # Parse title and year
-                    title, year = hybrid_rec._parse_title_year(rec['title'])
-                    st.markdown(f"### {i}. {title}")
-                    st.markdown(f"<span class='year-badge'>{year}</span>", unsafe_allow_html=True)
+                    st.markdown(f"### {i}. {r['title']}")
+                    st.markdown(f"<span class='year-badge'>{r['year']}</span>", unsafe_allow_html=True)
 
-                    # Genre pills
-                    genres = rec['genres'].split('|') if isinstance(rec['genres'], str) else rec['genres']
-                    genre_html = ' '.join([f'`{g}`' for g in genres[:4]])
+                    genre_html = ' '.join([f'`{g}`' for g in r['genres'][:4]])
                     st.markdown(genre_html)
 
-                    # Explanation box
                     st.markdown(f"""
                     <div class="explanation-box">
                         <div class="explanation-label">Why this movie?</div>
-                        <div class="explanation-text">{rec['explanation']}</div>
+                        <div class="explanation-text">{r['explanation']}</div>
                     </div>
                     """, unsafe_allow_html=True)
 
                 with col2:
-                    # Match score with color
-                    score_pct = int(rec['score'] * 100)
-                    if score_pct >= 50:
-                        color = "#22c55e"
-                    elif score_pct >= 30:
-                        color = "#f59e0b"
-                    else:
-                        color = "#6b7280"
+                    score_pct = int(r['score'] * 100)
+                    color = "#22c55e" if score_pct >= 50 else "#f59e0b" if score_pct >= 30 else "#6b7280"
 
                     st.markdown(f"""
                     <div style="text-align: center; padding: 10px;">
@@ -306,8 +228,8 @@ with tab1:
                         <div class="match-bar" style="margin-top: 8px;">
                             <div class="match-fill" style="width: {score_pct}%; background: {color};"></div>
                         </div>
-                        <div style="margin-top: 12px; font-size: 18px; color: #fbbf24;">★ {rec['avg_rating']}</div>
-                        <div style="font-size: 11px; color: #9ca3af;">Avg rating</div>
+                        <div style="margin-top: 12px; font-size: 18px; color: #fbbf24;">★ {r['rating']}/10</div>
+                        <div style="font-size: 11px; color: #9ca3af;">Rating</div>
                     </div>
                     """, unsafe_allow_html=True)
 
@@ -323,57 +245,48 @@ with tab1:
 with tab2:
     st.subheader("Find movies similar to one you love")
 
-    movie_titles = sorted(movies_df['title'].tolist())
-    selected_movie = st.selectbox(
-        "Type or select a movie",
-        movie_titles,
-        index=movie_titles.index("Inception (2010)") if "Inception (2010)" in movie_titles else 0
-    )
+    movie_titles = sorted([f"{m['title']} ({m['year']})" for m in all_movies])
+    selected_movie = st.selectbox("Type or select a movie", movie_titles, index=0)
 
     if st.button("Find Similar Movies", key="similar_btn", type="primary"):
         with st.spinner("Finding similar movies..."):
-            recs = content_rec.get_similar_movies(selected_movie, n=10)
+            recs = rec.get_similar_movies(selected_movie, n=10)
 
-            title, year = hybrid_rec._parse_title_year(selected_movie)
-            st.markdown(f"### Movies similar to *{title}* ({year})")
-            st.markdown("---")
+            if recs:
+                st.markdown(f"### Movies similar to *{selected_movie}*")
+                st.markdown("---")
 
-            for i, rec in enumerate(recs, 1):
-                with st.container():
-                    col1, col2 = st.columns([4, 1])
-                    with col1:
-                        rec_title, rec_year = hybrid_rec._parse_title_year(rec['title'])
-                        st.markdown(f"### {i}. {rec_title}")
-                        st.markdown(f"<span class='year-badge'>{rec_year}</span>", unsafe_allow_html=True)
+                for i, r in enumerate(recs, 1):
+                    with st.container():
+                        col1, col2 = st.columns([4, 1])
+                        with col1:
+                            st.markdown(f"### {i}. {r['title']}")
+                            st.markdown(f"<span class='year-badge'>{r['year']}</span>", unsafe_allow_html=True)
 
-                        genres = rec['genres'].split('|')
-                        genre_html = ' '.join([f'`{g}`' for g in genres[:4]])
-                        st.markdown(genre_html)
+                            genre_html = ' '.join([f'`{g}`' for g in r['genres'][:4]])
+                            st.markdown(genre_html)
 
-                        st.markdown(f"""
-                        <div class="explanation-box">
-                            <div class="explanation-label">Why similar?</div>
-                            <div class="explanation-text">{rec['explanation']}</div>
-                        </div>
-                        """, unsafe_allow_html=True)
-
-                    with col2:
-                        sim_pct = int(rec['score'] * 100)
-                        if sim_pct >= 50:
-                            color = "#22c55e"
-                        elif sim_pct >= 30:
-                            color = "#f59e0b"
-                        else:
-                            color = "#6b7280"
-
-                        st.markdown(f"""
-                        <div style="text-align: center; padding: 10px;">
-                            <div style="font-size: 28px; font-weight: bold; color: {color};">{sim_pct}%</div>
-                            <div style="font-size: 12px; color: #9ca3af;">Similar</div>
-                            <div class="match-bar" style="margin-top: 8px;">
-                                <div class="match-fill" style="width: {sim_pct}%; background: {color};"></div>
+                            st.markdown(f"""
+                            <div class="explanation-box">
+                                <div class="explanation-label">Why similar?</div>
+                                <div class="explanation-text">{r['explanation']}</div>
                             </div>
-                        </div>
-                        """, unsafe_allow_html=True)
+                            """, unsafe_allow_html=True)
 
-                    st.markdown("---")
+                        with col2:
+                            sim_pct = int(r['score'] * 100)
+                            color = "#22c55e" if sim_pct >= 50 else "#f59e0b" if sim_pct >= 30 else "#6b7280"
+
+                            st.markdown(f"""
+                            <div style="text-align: center; padding: 10px;">
+                                <div style="font-size: 28px; font-weight: bold; color: {color};">{sim_pct}%</div>
+                                <div style="font-size: 12px; color: #9ca3af;">Similar</div>
+                                <div class="match-bar" style="margin-top: 8px;">
+                                    <div class="match-fill" style="width: {sim_pct}%; background: {color};"></div>
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                        st.markdown("---")
+            else:
+                st.warning("No similar movies found.")
